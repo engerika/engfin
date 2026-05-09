@@ -22,8 +22,8 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 
-# Copiar arquivos de dependências
-COPY package.json package-lock.json* ./
+# Adicione a pasta gestaopro/ antes dos arquivos
+COPY gestaopro/package.json gestaopro/package-lock.json* ./
 RUN npm ci --only=production && npm cache clean --force
 
 # ─────────────────────────────────────────────────────────────
@@ -35,11 +35,8 @@ WORKDIR /app
 # Copiar dependências instaladas
 COPY --from=deps /app/node_modules ./node_modules
 
-# Copiar código fonte
-COPY . .
-
-# Copiar schema do Prisma
-COPY Prisma/schema.prisma ./Prisma/
+# Copie o conteúdo de gestaopro para o diretório atual (/app)
+COPY gestaopro/ ./
 
 # Gerar cliente Prisma
 RUN npx prisma generate

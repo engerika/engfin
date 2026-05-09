@@ -81,3 +81,8 @@ temp/
 # Logs
 logs/
 *.log
+
+# Arquivos da raiz (não copiamos mais)
+README.md
+LICENSE
+*.md
