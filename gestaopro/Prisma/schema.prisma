@@ -1,0 +1,473 @@
+"cm">// Prisma Schema — GestãoPro
+"cm">// PostgreSQL · 26 tabelas
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+"cm">// ─── ACESSO ───────────────────────────────────────────────
+
+model Empresa {
+  id         String   @id @default(uuid())
+  nome       String   @db.VarChar(120)
+  cnpj       String?  @db.VarChar(18) @unique
+  logoUrl    String?
+  ativo      Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  usuarios        UsuarioEmpresa[]
+  contas          ContaBancaria[]
+  lancamentos     Lancamento[]
+  contatos        Contato[]
+  planoContas     PlanoConta[]
+  formasPgto      FormaPagamento[]
+  tarefas         Tarefa[]
+  relatorios      Relatorio[]
+  inbox           InboxDocumento[]
+  checksFinanc    CheckFinanceiro[]
+  alertas         Alerta[]
+  centroCustos    CentroCusto[]
+  tags            Tag[]
+  configuracoes   ConfiguracaoEmpresa[]
+  logs            LogAuditoria[]
+  transferencias  TransferenciaInterna[]
+
+  @@map("empresas")
+}
+
+model Usuario {
+  id         String   @id @default(uuid())
+  nome       String   @db.VarChar(80)
+  email      String   @unique @db.VarChar(120)
+  senhaHash  String
+  ativo      Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  empresas        UsuarioEmpresa[]
+  tarefas         Tarefa[]         @relation("responsavel")
+  subtarefas      Subtarefa[]      @relation("responsavelSub")
+  relatorios      Relatorio[]
+  logs            LogAuditoria[]
+
+  @@map("usuarios")
+}
+
+model UsuarioEmpresa {
+  id            String  @id @default(uuid())
+  idUsuario     String
+  idEmpresa     String
+  perfilEmpresa String  @db.VarChar(20) "cm">// ADMIN | EDITOR | VIEWER
+  ativo         Boolean @default(true)
+  createdAt     DateTime @default(now())
+
+  usuario   Usuario @relation(fields: [idUsuario], references: [id])
+  empresa   Empresa @relation(fields: [idEmpresa], references: [id])
+
+  @@unique([idUsuario, idEmpresa])
+  @@index([idEmpresa])
+  @@map("usuarios_empresas")
+}
+
+"cm">// ─── CONTATOS ─────────────────────────────────────────────
+
+model Contato {
+  id        String  @id @default(uuid())
+  idEmpresa String
+  nome      String  @db.VarChar(120)
+  tipo      String  @db.VarChar(2)  "cm">// PF | PJ
+  cpfCnpj   String? @db.VarChar(18)
+  email     String? @db.VarChar(120)
+  telefone  String? @db.VarChar(20)
+  ativo     Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  empresa     Empresa      @relation(fields: [idEmpresa], references: [id])
+  lancamentos Lancamento[]
+
+  @@index([idEmpresa])
+  @@map("contatos")
+}
+
+"cm">// ─── CONTAS BANCÁRIAS ─────────────────────────────────────
+
+model ContaBancaria {
+  id            String   @id @default(uuid())
+  idEmpresa     String
+  banco         String   @db.VarChar(80)
+  agencia       String?  @db.VarChar(10)
+  conta         String   @db.VarChar(20)
+  tipo          String   @db.VarChar(30) "cm">// Corrente | Poupança | Caixa
+  saldoInicial  Decimal  @db.Decimal(15,2) @default(0)
+  ativo         Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  empresa            Empresa              @relation(fields: [idEmpresa], references: [id])
+  lancamentos        Lancamento[]
+  transferSaida      TransferenciaInterna[] @relation("origem")
+  transferEntrada    TransferenciaInterna[] @relation("destino")
+
+  @@index([idEmpresa])
+  @@map("contas_bancarias")
+}
+
+model TransferenciaInterna {
+  id               String   @id @default(uuid())
+  idEmpresa        String
+  idContaOrigem    String
+  idContaDestino   String
+  valor            Decimal  @db.Decimal(15,2)
+  dataTransferencia DateTime @db.Date
+  descricao        String?
+  comprovanteUrl   String?
+  createdAt        DateTime @default(now())
+
+  empresa      Empresa       @relation(fields: [idEmpresa], references: [id])
+  contaOrigem  ContaBancaria @relation("origem", fields: [idContaOrigem], references: [id])
+  contaDestino ContaBancaria @relation("destino", fields: [idContaDestino], references: [id])
+
+  @@index([idEmpresa])
+  @@map("transferencias_internas")
+}
+
+"cm">// ─── PLANO DE CONTAS ──────────────────────────────────────
+
+model PlanoConta {
+  id        String  @id @default(uuid())
+  idEmpresa String
+  codigo    String  @db.VarChar(20)
+  descricao String  @db.VarChar(120)
+  tipo      String  @db.VarChar(10) "cm">// RECEITA | DESPESA
+  idPai     String?
+  ativo     Boolean @default(true)
+
+  empresa     Empresa      @relation(fields: [idEmpresa], references: [id])
+  pai         PlanoConta?  @relation("hierarquia", fields: [idPai], references: [id])
+  filhos      PlanoConta[] @relation("hierarquia")
+  lancamentos Lancamento[]
+
+  @@index([idEmpresa])
+  @@map("plano_contas")
+}
+
+model FormaPagamento {
+  id        String  @id @default(uuid())
+  idEmpresa String
+  nome      String  @db.VarChar(60)
+  tipo      String  @db.VarChar(30) "cm">// PIX | BOLETO | TED | DINHEIRO
+  ativo     Boolean @default(true)
+
+  empresa     Empresa      @relation(fields: [idEmpresa], references: [id])
+  lancamentos Lancamento[]
+
+  @@index([idEmpresa])
+  @@map("formas_pagamento")
+}
+
+"cm">// ─── LANÇAMENTOS E PARCELAS ───────────────────────────────
+
+model Lancamento {
+  id              String   @id @default(uuid())
+  idEmpresa       String
+  idContaBancaria String
+  idContato       String?
+  idPlanoConta    String
+  idFormaPgto     String?
+  tipo            String   @db.VarChar(10) "cm">// RECEITA | DESPESA
+  descricao       String
+  valorTotal      Decimal  @db.Decimal(15,2)
+  numParcelas     Int      @default(1)
+  dataLancamento  DateTime @db.Date
+  observacao      String?
+  createdAt       DateTime @default(now())
+
+  empresa       Empresa        @relation(fields: [idEmpresa], references: [id])
+  contaBancaria ContaBancaria  @relation(fields: [idContaBancaria], references: [id])
+  contato       Contato?       @relation(fields: [idContato], references: [id])
+  planoConta    PlanoConta     @relation(fields: [idPlanoConta], references: [id])
+  formaPgto     FormaPagamento? @relation(fields: [idFormaPgto], references: [id])
+  parcelas      Parcela[]
+  anexos        AnexoLancamento[]
+  tarefas       Tarefa[]
+  centroCustos  LancamentoCentroCusto[]
+  tags          LancamentoTag[]
+  inbox         InboxDocumento[]
+
+  @@index([idEmpresa])
+  @@map("lancamentos")
+}
+
+model Parcela {
+  id             String    @id @default(uuid())
+  idLancamento   String
+  idEmpresa      String
+  numeroParcela  Int
+  valor          Decimal   @db.Decimal(15,2)
+  dataVencimento DateTime  @db.Date
+  dataPagamento  DateTime? @db.Date
+  status         String    @db.VarChar(15) @default("PENDENTE") "cm">// PENDENTE | PAGO | VENCIDO
+  juros          Decimal?  @db.Decimal(10,2)
+  desconto       Decimal?  @db.Decimal(10,2)
+  createdAt      DateTime  @default(now())
+
+  lancamento Lancamento       @relation(fields: [idLancamento], references: [id])
+  anexos     AnexoParcela[]
+  inbox      InboxDocumento[]
+  relParcs   RelatorioParcela[]
+
+  @@index([idLancamento])
+  @@index([idEmpresa])
+  @@index([dataVencimento])
+  @@index([status])
+  @@map("parcelas")
+}
+
+"cm">// ─── DOCUMENTOS E INBOX ───────────────────────────────────
+
+model InboxDocumento {
+  id              String   @id @default(uuid())
+  idEmpresa       String
+  tipoDocumento   String   @db.VarChar(20) "cm">// BOLETO | COMPROVANTE | CONTRATO | NF
+  arquivoUrl      String
+  nomeArquivo     String   @db.VarChar(200)
+  status          String   @db.VarChar(20) @default("AGUARDANDO") "cm">// AGUARDANDO | VINCULANDO | VINCULADO
+  idLancamentoRef String?
+  idParcelaRef    String?
+  createdAt       DateTime @default(now())
+
+  empresa    Empresa     @relation(fields: [idEmpresa], references: [id])
+  lancamento Lancamento? @relation(fields: [idLancamentoRef], references: [id])
+  parcela    Parcela?    @relation(fields: [idParcelaRef], references: [id])
+
+  @@index([idEmpresa])
+  @@index([status])
+  @@map("inbox_documentos")
+}
+
+model AnexoLancamento {
+  id            String   @id @default(uuid())
+  idLancamento  String
+  idEmpresa     String
+  tipoDocumento String   @db.VarChar(20)
+  arquivoUrl    String
+  nomeArquivo   String   @db.VarChar(200)
+  createdAt     DateTime @default(now())
+
+  lancamento Lancamento @relation(fields: [idLancamento], references: [id])
+
+  @@index([idLancamento])
+  @@map("anexos_lancamentos")
+}
+
+model AnexoParcela {
+  id            String   @id @default(uuid())
+  idParcela     String
+  idEmpresa     String
+  tipoDocumento String   @db.VarChar(20)
+  arquivoUrl    String
+  nomeArquivo   String   @db.VarChar(200)
+  createdAt     DateTime @default(now())
+
+  parcela Parcela @relation(fields: [idParcela], references: [id])
+
+  @@index([idParcela])
+  @@map("anexos_parcelas")
+}
+
+"cm">// ─── TAREFAS ──────────────────────────────────────────────
+
+model Tarefa {
+  id            String    @id @default(uuid())
+  idEmpresa     String
+  titulo        String    @db.VarChar(200)
+  descricao     String?
+  idResponsavel String
+  idLancamento  String?
+  dataCriacao   DateTime  @default(now())
+  dataConclusao DateTime?
+  status        String    @db.VarChar(15) @default("PENDENTE")
+  prioridade    String    @db.VarChar(10) @default("MEDIA")
+
+  empresa     Empresa    @relation(fields: [idEmpresa], references: [id])
+  responsavel Usuario    @relation("responsavel", fields: [idResponsavel], references: [id])
+  lancamento  Lancamento? @relation(fields: [idLancamento], references: [id])
+  subtarefas  Subtarefa[]
+
+  @@index([idEmpresa])
+  @@index([status])
+  @@map("tarefas")
+}
+
+model Subtarefa {
+  id            String    @id @default(uuid())
+  idTarefa      String
+  titulo        String    @db.VarChar(200)
+  status        String    @db.VarChar(15) @default("PENDENTE")
+  idResponsavel String?
+  dataConclusao DateTime?
+
+  tarefa      Tarefa   @relation(fields: [idTarefa], references: [id])
+  responsavel Usuario? @relation("responsavelSub", fields: [idResponsavel], references: [id])
+
+  @@index([idTarefa])
+  @@map("subtarefas")
+}
+
+"cm">// ─── RELATÓRIOS ───────────────────────────────────────────
+
+model Relatorio {
+  id             String    @id @default(uuid())
+  idEmpresa      String
+  idUsuario      String
+  titulo         String    @db.VarChar(200)
+  tipo           String    @db.VarChar(40)
+  periodoInicio  DateTime  @db.Date
+  periodoFim     DateTime  @db.Date
+  status         String    @db.VarChar(20) @default("PENDENTE") "cm">// PENDENTE | EMITINDO_PDF | GERADO
+  arquivoUrl     String?
+  createdAt      DateTime  @default(now())
+
+  empresa   Empresa            @relation(fields: [idEmpresa], references: [id])
+  usuario   Usuario            @relation(fields: [idUsuario], references: [id])
+  parcelas  RelatorioParcela[]
+
+  @@index([idEmpresa])
+  @@index([status])
+  @@map("relatorios")
+}
+
+model RelatorioParcela {
+  id          String @id @default(uuid())
+  idRelatorio String
+  idParcela   String
+
+  relatorio Relatorio @relation(fields: [idRelatorio], references: [id])
+  parcela   Parcela   @relation(fields: [idParcela], references: [id])
+
+  @@index([idRelatorio])
+  @@map("relatorio_parcelas")
+}
+
+model CheckFinanceiro {
+  id              String   @id @default(uuid())
+  idEmpresa       String
+  periodoDias     Int
+  dataReferencia  DateTime @db.Date
+  saldoProjetado  Decimal  @db.Decimal(15,2)
+  totalEntradas   Decimal  @db.Decimal(15,2)
+  totalSaidas     Decimal  @db.Decimal(15,2)
+  status          String   @db.VarChar(10) "cm">// OK | ATENCAO | CRITICO
+  createdAt       DateTime @default(now())
+
+  empresa  Empresa  @relation(fields: [idEmpresa], references: [id])
+  alertas  Alerta[]
+
+  @@index([idEmpresa])
+  @@map("check_financeiro")
+}
+
+model Alerta {
+  id         String   @id @default(uuid())
+  idEmpresa  String
+  idCheck    String?
+  tipoAlerta String   @db.VarChar(40)
+  mensagem   String
+  nivel      String   @db.VarChar(10) "cm">// INFO | ATENCAO | CRITICO
+  lido       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  empresa Empresa          @relation(fields: [idEmpresa], references: [id])
+  check   CheckFinanceiro? @relation(fields: [idCheck], references: [id])
+
+  @@index([idEmpresa])
+  @@map("alertas")
+}
+
+"cm">// ─── CONFIG E AUDITORIA ───────────────────────────────────
+
+model CentroCusto {
+  id        String  @id @default(uuid())
+  idEmpresa String
+  nome      String  @db.VarChar(80)
+  descricao String?
+  ativo     Boolean @default(true)
+
+  empresa     Empresa                 @relation(fields: [idEmpresa], references: [id])
+  lancamentos LancamentoCentroCusto[]
+
+  @@index([idEmpresa])
+  @@map("centro_custos")
+}
+
+model LancamentoCentroCusto {
+  id            String  @id @default(uuid())
+  idLancamento  String
+  idCentroCusto String
+  percentual    Decimal @db.Decimal(5,2)
+
+  lancamento  Lancamento  @relation(fields: [idLancamento], references: [id])
+  centroCusto CentroCusto @relation(fields: [idCentroCusto], references: [id])
+
+  @@index([idLancamento])
+  @@map("lancamento_centro_custos")
+}
+
+model Tag {
+  id        String @id @default(uuid())
+  idEmpresa String
+  nome      String @db.VarChar(40)
+  cor       String @db.VarChar(7)
+
+  empresa     Empresa         @relation(fields: [idEmpresa], references: [id])
+  lancamentos LancamentoTag[]
+
+  @@index([idEmpresa])
+  @@map("tags")
+}
+
+model LancamentoTag {
+  id           String @id @default(uuid())
+  idLancamento String
+  idTag        String
+
+  lancamento Lancamento @relation(fields: [idLancamento], references: [id])
+  tag        Tag        @relation(fields: [idTag], references: [id])
+
+  @@index([idLancamento])
+  @@map("lancamento_tags")
+}
+
+model ConfiguracaoEmpresa {
+  id        String   @id @default(uuid())
+  idEmpresa String
+  chave     String   @db.VarChar(60)
+  valor     String
+  updatedAt DateTime @updatedAt
+
+  empresa Empresa @relation(fields: [idEmpresa], references: [id])
+
+  @@unique([idEmpresa, chave])
+  @@index([idEmpresa])
+  @@map("configuracoes_empresa")
+}
+
+model LogAuditoria {
+  id              String   @id @default(uuid())
+  idEmpresa       String
+  idUsuario       String
+  tabela          String   @db.VarChar(60)
+  operacao        String   @db.VarChar(10)
+  dadosAnteriores Json?
+  dadosNovos      Json?
+  createdAt       DateTime @default(now())
+
+  empresa  Empresa @relation(fields: [idEmpresa], references: [id])
+  usuario  Usuario @relation(fields: [idUsuario], references: [id])
+
+  @@index([idEmpresa])
+  @@map("logs_auditoria")
+}

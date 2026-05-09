@@ -1,0 +1,6 @@
+curl -X POST "https://sistema-erika-barros-478869051934.southamerica-east1.run.app" \
+-H "Authorization: bearer $(gcloud auth print-identity-token)" \
+-H "Content-Type: application/json" \
+-d '{
+  "name": "Developer"
+}'
